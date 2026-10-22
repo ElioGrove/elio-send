@@ -177,6 +177,26 @@ it("bounds simultaneous connections while preserving the receiver slot", async (
   await connect(session, "receiver");
 });
 
+it("bounds oversized text and binary frames for both websocket roles", async () => {
+  for (const role of ["sender", "receiver"]) {
+    for (const message of ["x".repeat(120_065), new Uint8Array(120_065).buffer]) {
+      const socket = await connect(await createSession(), role);
+      const closed = nextEvent(socket, "close");
+      socket.send(message);
+      expect((await closed).code).toBe(1009);
+      socket.close(1000);
+    }
+  }
+});
+
+it("limits unexpected receiver traffic without forwarding it", async () => {
+  const receiver = await connect(await createSession(), "receiver");
+  const closed = nextEvent(receiver, "close");
+  for (let i = 0; i < 31; i += 1) receiver.send("ignored");
+  expect((await closed).code).toBe(1008);
+  receiver.close(1000);
+});
+
 it("serves CSP with explicit websocket origins and keeps localhost HTTP working", async () => {
   const assetEnv = { ASSETS: { fetch: () => new Response("<!doctype html><title>test</title>", { headers: { "Content-Type": "text/html" } }) } };
   for (const url of [origin, "http://localhost:8787"]) {

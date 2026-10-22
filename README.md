@@ -22,7 +22,7 @@
 
 接收端使用独立的随机凭证；会话 ID 是该凭证的 SHA-256 摘要。二维码只包含会话 ID，不能用于建立接收连接。接收凭证只保留在接收页面内存中，通过 WebSocket 子协议传递，不进入 URL、二维码或持久化存储。浏览器恢复后台页面时会按实际时间检查 60 秒清除期限；已复制的剪贴板内容仍由用户自行管理。
 
-服务端限制每个角色在一个会话内最多 64 个连接，每个发送连接每 10 秒最多 30 条消息；超大帧会在 JSON 解析前拒绝。这些限制用于抑制滥用，不代表公网接口已具备全局/IP 级限流。会话当前没有服务端固定有效期。
+服务端限制每个角色在一个会话内最多 64 个连接，每个连接每 10 秒最多 30 条入站消息；超大文本帧和二进制帧会在 JSON 解析前拒绝。这些限制用于抑制滥用，不代表公网接口已具备全局/IP 级限流。会话当前没有服务端固定有效期。
 
 ## 技术栈
 
@@ -33,7 +33,11 @@
 
 ## 本地开发
 
+使用 Node.js 24.22.1（`.nvmrc`）或 `package.json` 中支持的安全补丁版本。2026-10-21 的 Node.js 安全更新影响本地工具链；生产 Worker 使用 Cloudflare workerd。
+
 ```bash
+nvm install
+nvm use
 npm ci
 npm run dev
 ```
@@ -52,6 +56,8 @@ Cloudflare Workers Git 集成建议配置：
 - Build command: `npm ci`
 - Deploy command: `npm run deploy`
 - Root directory: 仓库根目录
+
+Workers Builds 支持读取 `.nvmrc`。若 Dashboard 设置了 `NODE_VERSION`，请同步设为 `24.22.1`，避免覆盖仓库的版本选择。
 
 计划使用域名：`send.thus.chat`
 

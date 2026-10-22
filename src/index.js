@@ -44,7 +44,7 @@ export class TransferSession extends DurableObject {
 
   async webSocketMessage(socket, message) {
     const attachment = socket.deserializeAttachment();
-    if (attachment?.role !== "sender") {
+    if (attachment?.role !== "sender" && attachment?.role !== "receiver") {
       return;
     }
 
@@ -60,12 +60,16 @@ export class TransferSession extends DurableObject {
       return;
     }
 
-    if (typeof message !== "string") {
-      socket.send(JSON.stringify({ type: "sent", success: false, error: "消息格式错误" }));
+    // Bound all inbound traffic, including unexpected receiver and binary frames.
+    const messageLength = typeof message === "string" ? message.length : message.byteLength;
+    if (messageLength > MAX_MESSAGE_LENGTH) {
+      socket.close(1009, "Message too large");
       return;
     }
-    if (message.length > MAX_MESSAGE_LENGTH) {
-      socket.close(1009, "Message too large");
+    if (attachment.role !== "sender") return;
+
+    if (typeof message !== "string") {
+      socket.send(JSON.stringify({ type: "sent", success: false, error: "消息格式错误" }));
       return;
     }
 

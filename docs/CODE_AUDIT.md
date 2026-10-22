@@ -1,5 +1,46 @@
 # 代码审核记录
 
+## 2026-10-22 复审
+
+范围：Worker 和 Durable Object 全部路由及 WebSocket 处理、浏览器脚本、HTML/CSS、静态说明、图标脚本、测试、完整锁定依赖树和部署配置。遵循最小改动原则，不调整正常传输协议、20,000 字符上限、60 秒清除规则或现有 UI。
+
+### 本次发现与修复
+
+| 问题 | 影响与处理 |
+| --- | --- |
+| 接收连接提前返回，绕过入站流量保护 | 接收凭证持有者可通过无效消息反复唤醒 DO；两个角色现均受每连接每 10 秒 30 条消息限制，计数仍随 WebSocket 附件跨休眠保留 |
+| 二进制帧未受应用大小上限约束 | 原逻辑只返回格式错误；现在两个角色的超大文本/二进制帧均以 1009 关闭，接收端消息仍不会被转发，小型非法发送消息仍返回原错误 |
+| Vitest 4.1.11 的两个中危公告 | `GHSA-qxg6-89mg-rqv8`（代码注入）与 `GHSA-xp26-3454-mjgp`（Windows 路径穿越）；升级 Vitest/@vitest/mocker 至 4.1.12，更新兼容的工具链补丁和锁文件，不修改运行时依赖 qrcode |
+| 本机 Node 24.15.0 早于 10 月 21 日安全修复 | 官方公告涉及 DNS、TLS、Brotli 等；增加 `.nvmrc` 24.22.1 与 engines 安全版本下限，使用临时 Node 24.22.1 完成验证。未修改系统 Node，开发者仍需 `nvm install && nvm use`；Cloudflare Dashboard 的 NODE_VERSION 如有覆盖也需同步 |
+
+### Cloudflare 专项结论
+
+- `SESSIONS` 绑定、`TransferSession` 导出、SQLite 类迁移 `v1` 一致。无需新增迁移；未发现 D1、R2、KV、Access、Cron 或 Alarm 配置，因此没有这些资源的数据库查询或定时任务可审查。
+- 兼容日期保留 `2026-06-26`。官方 `2026-04-07` 起默认自动回复 WebSocket Close；本项目已在该范围，无需增加关闭握手处理。
+- WebSocket 使用休眠 API；没有保活 interval 或全局共享会话状态。传输文本及接收凭证不写 DO 存储，已有测试验证存储为空、会话隔离和休眠后继续路由。
+- 接收能力由随机凭证的 SHA-256 原像证明；二维码只暴露发送能力。跨源浏览器请求受 Origin/Sec-Fetch-Site 检查，公开摘要比较不涉及两个秘密的明文比较。
+- 静态资产经 Worker 设置 CSP/no-referrer/no-store 等响应头；文本以 textContent 显示，二维码以图像加载。未发现 SQL 注入、路径拼接读取文件、动态执行用户输入或源码硬编码凭据。
+- 应用帧上限在消息交付给处理器之后生效，不能阻止平台接收整帧。单连接限流也无法代替全局/IP 限流，重连、海量会话和慢接收者仍可能增加资源消耗。
+
+### 本次验证
+
+- 使用 Node 24.22.1；`npm run check` 通过。
+- `npm test`：11 项真实 Workers/DO 测试及 6 项浏览器逻辑回归测试通过。新增覆盖两个角色的超大文本/二进制关闭及接收端洪泛；原鉴权、跨源、Unicode、转义边界、连接上限、休眠与前端竞态测试继续通过。浏览器逻辑测试为 VM harness，不等同于本次真实浏览器 UI 验收。
+- 官方 npm 在线审计：完整锁定依赖树 0 个已知漏洞（2026-10-22），不是对未披露漏洞的保证。
+- 安全版 Node 下 `npm ci` 干净安装成功；安装后重新运行全部测试、语法检查及部署打包通过。
+- `wrangler deploy --dry-run --outdir dist`：通过，绑定识别正确，打包 gzip 约 16.95 KiB。
+- 发布前只读核对当前生产版本：兼容日期 `2026-06-26`、迁移 `v1`、`ASSETS` 和 `SESSIONS/TransferSession` 与本地配置一致。
+
+### 保留待确认的较大调整
+
+1. 会话固定有效期、全局/IP 限流及慢连接背压策略：需明确超时、并发和正常流量阈值，再实施，以免改变扫码链接可用性或误拦截共享网络用户。
+2. 页面信任的 Umami 外部脚本可访问页面内容；移除统计或固定脚本版本/SRI 会改变统计维护流程，应单独决策。
+3. 日志开启，traces 未开启；新增追踪需先评估 URL 中的发送能力与握手头的保留策略。生产 workerd 由 Cloudflare 维护，本地 Node 升级不等同于修改生产运行时。
+
+本次依据：[Node.js 2026-10-21 安全公告](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)、[Vitest 代码注入公告](https://github.com/advisories/GHSA-qxg6-89mg-rqv8)、[Vitest 路径穿越公告](https://github.com/advisories/GHSA-xp26-3454-mjgp)、[Cloudflare Close 自动回复](https://developers.cloudflare.com/changelog/post/2026-04-07-websocket-auto-reply-to-close/)、[Workers Builds 版本文件](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/)。
+
+## 历史审核：2026-10-07
+
 审核日期：2026-10-07。范围包括全部 Worker、前端 JavaScript、HTML/CSS、静态说明文件、图标脚本、依赖及 Wrangler 配置。
 
 ## 已修复的问题
