@@ -1,6 +1,6 @@
 # 安全传输文本内容
 
-安全方便传输文本信息。由 XIAOLIN AI LAB 出品。
+安全方便传输文本信息。由 ELIO AI LAB 出品。
 
 网站地址：https://send.thus.chat/
 
@@ -28,8 +28,8 @@
 
 ## 出品方
 
-XIAOLIN AI LAB
+ELIO AI LAB
 
 - 官网：https://www.thus.chat/
 - 邮箱：ceo@thus.chat
-- GitHub：https://github.com/xiaolinbaba/xiaolin-send-worker
+- GitHub：https://github.com/ElioGrove/elio-send-worker

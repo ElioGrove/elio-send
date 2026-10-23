@@ -1,4 +1,4 @@
-# xiaolin-send-worker
+# elio-send-worker
 
 一个部署在 Cloudflare Workers 上的临时文本传输工具。
 
