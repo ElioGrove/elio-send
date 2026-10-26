@@ -96,6 +96,20 @@ h1 {
     letter-spacing: 0;
 }
 
+.page-title {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.28em;
+}
+
+.title-logo {
+    display: block;
+    flex: none;
+    width: 1.2em;
+    height: 1.2em;
+}
+
 .page-summary {
     width: min(100%, 36rem);
     margin: 0 0 20px;
