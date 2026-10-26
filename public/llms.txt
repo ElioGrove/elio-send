@@ -7,7 +7,7 @@
 - [网站首页](https://send.thus.chat/)
 - [Markdown 版本](https://send.thus.chat/index.md)
 - [完整说明](https://send.thus.chat/llms-full.txt)
-- [项目仓库](https://github.com/ElioGrove/elio-send-worker)
+- [项目仓库](https://github.com/ElioGrove/elio-send)
 - [ELIO AI LAB](https://www.thus.chat/)
 - [联系邮箱](mailto:ceo@thus.chat)
 

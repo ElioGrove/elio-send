@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "elio-send-worker",
+  "name": "elio-send",
   "main": "src/index.js",
   "compatibility_date": "2026-06-26",
   "assets": {

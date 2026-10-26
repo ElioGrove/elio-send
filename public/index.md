@@ -32,4 +32,4 @@ ELIO AI LAB
 
 - 官网：https://www.thus.chat/
 - 邮箱：ceo@thus.chat
-- GitHub：https://github.com/ElioGrove/elio-send-worker
+- GitHub：https://github.com/ElioGrove/elio-send

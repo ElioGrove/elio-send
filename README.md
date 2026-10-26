@@ -1,4 +1,4 @@
-# elio-send-worker
+# elio-send
 
 一个部署在 Cloudflare Workers 上的临时文本传输工具。
 
@@ -73,3 +73,35 @@ npm run deploy -- --dry-run --outdir dist
 `npm test` 包含真实 Workers/Durable Objects 运行时测试，以及前端会话竞态、消息确认和过期清除的回归测试。测试使用本地资源，不访问生产 Durable Objects。
 
 鉴权升级发布后，已打开的旧版接收页面需要刷新以获得独立接收凭证。
+
+<!-- cloudflare-git-config:start -->
+## Cloudflare Git 集成建议配置
+
+核对日期：2026-10-26。
+
+使用 **Cloudflare Workers Builds / GitHub**，连接 `ElioGrove/elio-send`。
+
+| 配置项 | 建议值 |
+| --- | --- |
+| Worker 名称 | `elio-send` |
+| 生产分支 | `main` |
+| 根目录 | `/` |
+| 配置文件 | `wrangler.jsonc`（由部署脚本选择） |
+| 构建命令 | `npm ci` |
+| 部署命令 | `npm run deploy` |
+| 启用预览构建 | 关闭；传输会话位于生产 Durable Objects |
+| 预览命令 | 留空/不适用（预览构建关闭） |
+| 构建监视路径 | 包含 `*`，排除项留空 |
+| 输出目录 | 无需填写，由 Wrangler/框架配置管理 |
+
+构建环境使用 `NODE_VERSION=24.22.1`；如有 package-lock.json，保留自动依赖安装。
+
+无需额外 Secret。保留 `ASSETS` 和 `SESSIONS` → `TransferSession`，现有 namespace `874796a7200b414cb33b24b9944b25c4` 及 migration `v1` 不变。保留生产自定义域名。
+
+构建变量与运行时变量分开配置。Secrets 仅保存在 Cloudflare 的运行时密钥设置，不能提交值到 Git。Workers Builds 使用现有构建令牌；不需要把 Cloudflare API token 写入 README 或仓库。原地更名后保留资源 ID，不删除再创建数据资源。
+
+部署验证：推送 main 后，在 Worker → Deployments / Build history 找到相同提交 SHA，确认构建与发布成功；再验证自定义域名和必要的鉴权。空提交命令：`git commit --allow-empty -m "chore: verify Cloudflare Git deployment"`，然后 `git push origin main`。若未连接 Git 仓库，空提交不会触发部署，需先在 Settings → Builds 完成连接。
+
+参考：[Workers Builds 配置](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)、[Builds API](https://developers.cloudflare.com/workers/ci-cd/builds/api-reference/)。
+
+<!-- cloudflare-git-config:end -->
