@@ -1,110 +1,23 @@
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import sharp from "sharp";
 
-const size = 32;
-const pixels = Buffer.alloc(size * size * 4);
-
-function setPixel(x, y, rgba) {
-  if (x < 0 || y < 0 || x >= size || y >= size) {
-    return;
-  }
-  const offset = (y * size + x) * 4;
-  pixels[offset] = rgba[0];
-  pixels[offset + 1] = rgba[1];
-  pixels[offset + 2] = rgba[2];
-  pixels[offset + 3] = rgba[3];
-}
-
-function fillRect(x, y, width, height, rgba) {
-  for (let yy = y; yy < y + height; yy += 1) {
-    for (let xx = x; xx < x + width; xx += 1) {
-      setPixel(xx, yy, rgba);
-    }
-  }
-}
-
-function pointInPolygon(x, y, points) {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
-    const xi = points[i][0];
-    const yi = points[i][1];
-    const xj = points[j][0];
-    const yj = points[j][1];
-    const intersects = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-    if (intersects) {
-      inside = !inside;
-    }
-  }
-  return inside;
-}
-
-function fillPolygon(points, rgba) {
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      if (pointInPolygon(x + 0.5, y + 0.5, points)) {
-        setPixel(x, y, rgba);
-      }
-    }
-  }
-}
-
-const teal = [15, 118, 110, 255];
-const white = [255, 255, 255, 255];
-
-fillRect(0, 0, size, size, teal);
-fillPolygon(
-  [
-    [16, 5],
-    [24, 8],
-    [24, 16],
-    [22, 22],
-    [16, 27],
-    [10, 22],
-    [8, 16],
-    [8, 8]
-  ],
-  white
-);
-fillRect(12, 14, 8, 2, teal);
-fillRect(12, 18, 8, 2, teal);
-fillRect(12, 22, 8, 2, teal);
-
-const xor = Buffer.alloc(size * size * 4);
-for (let y = 0; y < size; y += 1) {
-  for (let x = 0; x < size; x += 1) {
-    const source = ((size - 1 - y) * size + x) * 4;
-    const target = (y * size + x) * 4;
-    xor[target] = pixels[source + 2];
-    xor[target + 1] = pixels[source + 1];
-    xor[target + 2] = pixels[source];
-    xor[target + 3] = pixels[source + 3];
-  }
-}
-
-const andMask = Buffer.alloc((size / 8) * size);
-const bitmapHeader = Buffer.alloc(40);
-bitmapHeader.writeUInt32LE(40, 0);
-bitmapHeader.writeInt32LE(size, 4);
-bitmapHeader.writeInt32LE(size * 2, 8);
-bitmapHeader.writeUInt16LE(1, 12);
-bitmapHeader.writeUInt16LE(32, 14);
-bitmapHeader.writeUInt32LE(0, 16);
-bitmapHeader.writeUInt32LE(xor.length + andMask.length, 20);
-
-const imageData = Buffer.concat([bitmapHeader, xor, andMask]);
-const iconDir = Buffer.alloc(6);
-iconDir.writeUInt16LE(0, 0);
-iconDir.writeUInt16LE(1, 2);
-iconDir.writeUInt16LE(1, 4);
-
-const entry = Buffer.alloc(16);
-entry.writeUInt8(size, 0);
-entry.writeUInt8(size, 1);
-entry.writeUInt8(0, 2);
-entry.writeUInt8(0, 3);
-entry.writeUInt16LE(1, 4);
-entry.writeUInt16LE(32, 6);
-entry.writeUInt32LE(imageData.length, 8);
-entry.writeUInt32LE(iconDir.length + entry.length, 12);
-
-writeFileSync(join("public", "favicon.ico"), Buffer.concat([iconDir, entry, imageData]));
+// Render every bitmap from the SVG master so browser and touch icons stay in sync.
+const svg = readFileSync(new URL("../public/favicon.svg", import.meta.url));
+const sizes = [16, 32, 48];
+const images = await Promise.all(sizes.map((size) => sharp(svg).resize(size, size).png().toBuffer()));
+const header = Buffer.alloc(6 + sizes.length * 16);
+header.writeUInt16LE(1, 2);
+header.writeUInt16LE(sizes.length, 4);
+let offset = header.length;
+sizes.forEach((size, index) => {
+  const entry = 6 + index * 16;
+  header[entry] = size;
+  header[entry + 1] = size;
+  header.writeUInt16LE(1, entry + 4);
+  header.writeUInt16LE(32, entry + 6);
+  header.writeUInt32LE(images[index].length, entry + 8);
+  header.writeUInt32LE(offset, entry + 12);
+  offset += images[index].length;
+});
+writeFileSync(new URL("../public/favicon.ico", import.meta.url), Buffer.concat([header, ...images]));
+await sharp(svg).resize(180, 180).png().toFile(new URL("../public/apple-touch-icon.png", import.meta.url).pathname);
