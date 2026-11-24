@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 // Render every bitmap from the SVG master so browser and touch icons stay in sync.
@@ -20,4 +21,4 @@ sizes.forEach((size, index) => {
   offset += images[index].length;
 });
 writeFileSync(new URL("../public/favicon.ico", import.meta.url), Buffer.concat([header, ...images]));
-await sharp(svg).resize(180, 180).png().toFile(new URL("../public/apple-touch-icon.png", import.meta.url).pathname);
+await sharp(svg).resize(180, 180).png().toFile(fileURLToPath(new URL("../public/apple-touch-icon.png", import.meta.url)));

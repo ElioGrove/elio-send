@@ -149,8 +149,7 @@ h1 {
     color: var(--text-muted);
 }
 
-.qr-frame img,
-.qr-frame svg {
+.qr-frame img {
     width: min(100%, 238px);
     height: auto;
     max-height: 100%;
@@ -378,8 +377,7 @@ h1 {
         height: clamp(168px, 31vh, 238px);
     }
 
-    .qr-frame img,
-    .qr-frame svg {
+    .qr-frame img {
         width: min(100%, 210px);
     }
 
@@ -417,8 +415,7 @@ h1 {
         height: 172px;
     }
 
-    .qr-frame img,
-    .qr-frame svg {
+    .qr-frame img {
         width: 156px;
     }
 

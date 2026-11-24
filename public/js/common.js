@@ -19,6 +19,7 @@ function parseMessage(data) {
 
 function showStatus(text, state) {
     const element = document.getElementById("connection-status");
+    if (!element) return;
     element.textContent = text;
     element.className = `status-pill status-${state}`;
 }

@@ -122,7 +122,6 @@ function showReceivedText(text, expiresIn) {
     updateCountdown();
     countdownInterval = window.setInterval(updateCountdown, 1000);
 
-    window.clearTimeout(clearTextTimeout);
     clearTextTimeout = window.setTimeout(() => {
         clearReceivedText("等待接收文本");
     }, seconds * 1000);
