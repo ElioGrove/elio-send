@@ -7,20 +7,56 @@ const MAX_MESSAGE_LENGTH = MAX_TEXT_LENGTH * 6 + 64;
 const MAX_CONNECTIONS_PER_ROLE = 64;
 const MESSAGE_WINDOW_MS = 10_000;
 const MAX_MESSAGES_PER_WINDOW = 30;
+const SESSION_TTL_MS = 60 * 60 * 1000;
+const SESSION_CREATED_AT_KEY = "createdAt";
+const INTERNAL_INIT_URL = "https://session.internal/init";
 const SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]{22,64}$/;
 const RECEIVER_PROTOCOL_PATTERN = /^receiver\.([a-zA-Z0-9_-]{43})$/;
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains"
+};
 
 export class TransferSession extends DurableObject {
   async fetch(request) {
-    const upgradeHeader = request.headers.get("Upgrade");
-    if (upgradeHeader?.toLowerCase() !== "websocket") {
-      return new Response("Expected WebSocket upgrade", { status: 426 });
+    const url = new URL(request.url);
+
+    if (request.method === "POST" && url.pathname === "/init") {
+      const existing = await this.ctx.storage.get(SESSION_CREATED_AT_KEY);
+      if (typeof existing === "number") {
+        return jsonResponse({ error: "Session already initialized" }, { status: 409 });
+      }
+      const createdAt = Date.now();
+      await this.ctx.storage.put(SESSION_CREATED_AT_KEY, createdAt);
+      return jsonResponse({ createdAt, expiresAt: createdAt + SESSION_TTL_MS });
     }
 
-    const url = new URL(request.url);
+    const upgradeHeader = request.headers.get("Upgrade");
+    if (upgradeHeader?.toLowerCase() !== "websocket") {
+      return textResponse("Expected WebSocket upgrade", { status: 426 });
+    }
+
     const role = url.searchParams.get("role");
     if (role !== "receiver" && role !== "sender") {
       return jsonResponse({ error: "Invalid role" }, { status: 400 });
+    }
+
+    const createdAt = await this.ctx.storage.get(SESSION_CREATED_AT_KEY);
+    if (typeof createdAt !== "number") {
+      return jsonResponse({ error: "Session not found" }, { status: 404 });
+    }
+    const expiresAt = createdAt + SESSION_TTL_MS;
+    if (Date.now() > expiresAt) {
+      for (const activeSocket of this.ctx.getWebSockets()) {
+        try {
+          activeSocket.close(4410, "Session expired");
+        } catch {
+          // The socket may already be closed.
+        }
+      }
+      return jsonResponse({ error: "Session expired" }, { status: 410 });
     }
 
     if (this.ctx.getWebSockets(role).length >= MAX_CONNECTIONS_PER_ROLE) {
@@ -29,7 +65,7 @@ export class TransferSession extends DurableObject {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    server.serializeAttachment({ role });
+    server.serializeAttachment({ role, expiresAt });
     this.ctx.acceptWebSocket(server, [role]);
     server.send(JSON.stringify({ type: "ready", role }));
 
@@ -49,6 +85,10 @@ export class TransferSession extends DurableObject {
     }
 
     const now = Date.now();
+    if (typeof attachment.expiresAt !== "number" || now > attachment.expiresAt) {
+      socket.close(4410, "Session expired");
+      return;
+    }
     if (!attachment.windowStart || now - attachment.windowStart >= MESSAGE_WINDOW_MS) {
       attachment.windowStart = now;
       attachment.messageCount = 0;
@@ -134,7 +174,7 @@ export default {
 
     if (url.pathname === "/api/session") {
       if (request.method !== "POST") {
-        return new Response("Method Not Allowed", {
+        return textResponse("Method Not Allowed", {
           status: 405,
           headers: { Allow: "POST" }
         });
@@ -146,6 +186,14 @@ export default {
 
       const receiverToken = createReceiverToken();
       const sessionId = await deriveSessionId(receiverToken);
+      const session = env.SESSIONS.getByName(sessionId);
+      const initResponse = await session.fetch(new Request(INTERNAL_INIT_URL, { method: "POST" }));
+      if (!initResponse.ok) {
+        await initResponse.body?.cancel();
+        return jsonResponse({ error: "Failed to initialize session" }, { status: 500 });
+      }
+      const { expiresAt } = await initResponse.json();
+
       const receiveUrl = new URL("/receive.html", url.origin);
       receiveUrl.searchParams.set("sid", sessionId);
       const qrSvg = await QRCode.toString(receiveUrl.href, {
@@ -159,7 +207,8 @@ export default {
         sessionId,
         receiverToken,
         receiveUrl: receiveUrl.href,
-        qrSvg
+        qrSvg,
+        expiresAt
       });
     }
 
@@ -170,10 +219,10 @@ export default {
         return jsonResponse({ error: "Invalid session ID" }, { status: 400 });
       }
       if (request.method !== "GET") {
-        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
+        return textResponse("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
       }
       if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-        return new Response("Expected WebSocket upgrade", { status: 426 });
+        return textResponse("Expected WebSocket upgrade", { status: 426 });
       }
       if (!isSameOriginRequest(request, url)) {
         return jsonResponse({ error: "Cross-origin request denied" }, { status: 403 });
@@ -193,7 +242,8 @@ export default {
       }
 
       const session = env.SESSIONS.getByName(sessionId);
-      return session.fetch(request);
+      const sessionResponse = await session.fetch(request);
+      return sessionResponse.status === 101 ? sessionResponse : withApiSecurityHeaders(sessionResponse);
     }
 
     const assetRequest = normalizeAssetRequest(request);
@@ -242,8 +292,35 @@ function jsonResponse(body, init = {}) {
     ...init,
     headers: {
       "Cache-Control": "no-store",
+      ...SECURITY_HEADERS,
       ...init.headers
     }
+  });
+}
+
+function textResponse(body, init = {}) {
+  return new Response(body, {
+    ...init,
+    headers: {
+      "Cache-Control": "no-store",
+      ...SECURITY_HEADERS,
+      ...init.headers
+    }
+  });
+}
+
+function withApiSecurityHeaders(response) {
+  const headers = new Headers(response.headers);
+  if (!headers.has("Cache-Control")) {
+    headers.set("Cache-Control", "no-store");
+  }
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
   });
 }
 
@@ -251,22 +328,22 @@ function withSecurityHeaders(response, url) {
   const headers = new Headers(response.headers);
   const contentType = headers.get("Content-Type") || "";
 
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("Referrer-Policy", "no-referrer");
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    headers.set(key, value);
+  }
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 
   if (contentType.includes("text/html")) {
     const websocketOrigin = `${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}`;
     headers.set("Cache-Control", "no-store");
-    headers.set("X-Frame-Options", "DENY");
     headers.set(
       "Content-Security-Policy",
       [
         "default-src 'self'",
-        "script-src 'self' https://umami.thus.chat",
+        "script-src 'self'",
         "style-src 'self'",
         "img-src 'self' data:",
-        `connect-src 'self' ${websocketOrigin} https://umami.thus.chat`,
+        `connect-src 'self' ${websocketOrigin}`,
         "font-src 'self'",
         "object-src 'none'",
         "base-uri 'self'",

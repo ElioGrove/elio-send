@@ -67,7 +67,7 @@ body {
 }
 
 .app-shell {
-    min-height: calc(100dvh - 42px);
+    min-height: calc(100dvh - 48px);
     display: grid;
     place-items: center;
     padding: clamp(18px, 5vh, 42px) 16px 10px;
@@ -106,6 +106,11 @@ h1 {
 
 .status-row {
     min-height: 30px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
 }
 
 .status-pill {
@@ -209,13 +214,26 @@ h1 {
 }
 
 #text-input::placeholder {
-    color: #7a8797;
+    color: #596678;
+    opacity: 1;
 }
 
 .received-text-display:focus,
 #text-input:focus {
     border-color: var(--accent);
-    outline: 3px solid rgba(15, 118, 110, 0.16);
+}
+
+.btn:focus-visible,
+.site-footer a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.received-text-display:focus-visible,
+#text-input:focus-visible {
+    border-color: var(--accent);
+    outline: 3px solid rgba(15, 118, 110, 0.28);
+    outline-offset: 0;
 }
 
 .input-meta {
@@ -278,6 +296,13 @@ h1 {
     font-size: 0.92rem;
 }
 
+.btn-xs {
+    min-height: 30px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 0.84rem;
+}
+
 .alert {
     padding: 12px;
     border: 1px solid transparent;
@@ -314,21 +339,24 @@ h1 {
 }
 
 .site-footer {
-    height: 42px;
+    min-height: 48px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
     gap: 4px;
-    padding: 0 16px 12px;
+    padding: 4px 16px calc(12px + env(safe-area-inset-bottom));
     color: var(--text-muted);
     font-size: 0.82rem;
-    line-height: 1.2;
+    line-height: 1.4;
+    text-align: center;
 }
 
 .site-footer a {
     color: inherit;
     font: inherit;
     text-decoration: none;
+    border-radius: 4px;
 }
 
 .site-footer a:hover {
@@ -336,12 +364,13 @@ h1 {
 }
 
 .github-link {
-    width: 22px;
-    height: 22px;
+    min-width: 44px;
+    min-height: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    margin-right: 10px;
+    margin-right: 2px;
+    border-radius: 8px;
 }
 
 .github-icon {
@@ -353,7 +382,7 @@ h1 {
 
 @media (max-width: 640px) {
     .app-shell {
-        min-height: calc(100dvh - 40px);
+        min-height: calc(100dvh - 44px);
         padding: 14px 18px 6px;
     }
 
@@ -400,15 +429,17 @@ h1 {
     }
 
     .site-footer {
-        height: 40px;
-        padding-bottom: 10px;
+        min-height: 44px;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom));
         font-size: 0.76rem;
     }
 }
 
 @media (max-height: 620px) {
     .page-summary {
-        display: none;
+        margin-bottom: 10px;
+        font-size: 0.88rem;
+        line-height: 1.4;
     }
 
     .qr-frame {
@@ -431,5 +462,16 @@ h1 {
     #text-input {
         min-height: 128px;
         max-height: 26vh;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btn,
+    .alert {
+        transition: none;
+    }
+
+    .btn:active {
+        transform: none;
     }
 }

@@ -1,5 +1,6 @@
 const qrcodeElement = document.getElementById("qrcode");
 const refreshButton = document.getElementById("refresh-btn");
+const reconnectButton = document.getElementById("reconnect-btn");
 const receivedTextElement = document.getElementById("received-text");
 const copyButton = document.getElementById("copy-btn");
 const copyMessage = document.getElementById("copy-message");
@@ -15,8 +16,39 @@ let sessionRequestController;
 let copyMessageTimeout;
 let textExpiresAt = 0;
 let reconnectAttempts = 0;
+let terminalClosed = false;
+let waitingForOnline = false;
 
 refreshButton.addEventListener("click", createSession);
+
+reconnectButton?.addEventListener("click", () => {
+    if (!activeSession) {
+        createSession();
+        return;
+    }
+    reconnectAttempts = 0;
+    terminalClosed = false;
+    waitingForOnline = false;
+    setReconnectButtonVisible(false);
+    connectReceiver(activeSession);
+});
+
+window.addEventListener?.("offline", () => {
+    if (!activeSession || terminalClosed) return;
+    waitingForOnline = true;
+    window.clearTimeout(reconnectTimeout);
+    reconnectTimeout = undefined;
+    showStatus("网络已断开，等待恢复", "muted");
+});
+
+window.addEventListener?.("online", () => {
+    if (!activeSession || terminalClosed) return;
+    if (!waitingForOnline && socket && socket.readyState <= WebSocket.OPEN) return;
+    waitingForOnline = false;
+    reconnectAttempts = 0;
+    setReconnectButtonVisible(false);
+    connectReceiver(activeSession);
+});
 
 document.addEventListener("visibilitychange", updateCountdown);
 
@@ -27,15 +59,23 @@ copyButton.addEventListener("click", async () => {
     }
     const textToCopy = receivedTextValue;
     try {
+        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+            throw new Error("Clipboard API unavailable");
+        }
         await navigator.clipboard.writeText(textToCopy);
         if (receivedTextValue !== textToCopy) {
             return;
         }
-        copyMessage.classList.remove("d-none");
-        window.clearTimeout(copyMessageTimeout);
-        copyMessageTimeout = window.setTimeout(() => copyMessage.classList.add("d-none"), 3000);
+        showCopyMessage("文本已复制到剪贴板", "success");
     } catch {
-        showStatus("复制失败", "error");
+        if (receivedTextValue !== textToCopy) {
+            return;
+        }
+        const selected = selectReceivedText();
+        showCopyMessage(
+            selected ? "自动复制失败，已选中文本，请手动复制" : "自动复制失败，请手动选中并复制",
+            "danger"
+        );
     }
 });
 
@@ -47,6 +87,9 @@ async function createSession() {
     sessionRequestController = controller;
     closeSocket();
     reconnectAttempts = 0;
+    terminalClosed = false;
+    waitingForOnline = false;
+    setReconnectButtonVisible(false);
     showStatus("正在创建会话", "muted");
     qrcodeElement.textContent = "正在生成二维码";
     clearReceivedText("等待接收文本");
@@ -75,12 +118,23 @@ async function createSession() {
 function connectReceiver(session) {
     closeSocket();
     activeSession = session;
+    terminalClosed = false;
+    setReconnectButtonVisible(false);
+
+    if (isBrowserOffline()) {
+        waitingForOnline = true;
+        showStatus("网络已断开，等待恢复", "muted");
+        return;
+    }
+
     const currentSocket = new WebSocket(buildWebSocketUrl(session.sessionId, "receiver"), `receiver.${session.receiverToken}`);
     socket = currentSocket;
 
     currentSocket.addEventListener("open", () => {
         if (socket !== currentSocket) return;
         reconnectAttempts = 0;
+        waitingForOnline = false;
+        setReconnectButtonVisible(false);
         showStatus("等待手机发送", "live");
     });
 
@@ -94,8 +148,31 @@ function connectReceiver(session) {
         showReceivedText(payload.text, payload.expiresIn || 60);
     });
 
-    currentSocket.addEventListener("close", () => {
+    currentSocket.addEventListener("close", (event) => {
         if (socket !== currentSocket || activeSession !== session) {
+            return;
+        }
+        socket = undefined;
+
+        const code = event?.code;
+        if (isTerminalCloseCode(code)) {
+            terminalClosed = true;
+            window.clearTimeout(reconnectTimeout);
+            reconnectTimeout = undefined;
+            showStatus(terminalCloseMessage(code, "receiver"), "error");
+            setReconnectButtonVisible(code === 1008 || code === 1009);
+            return;
+        }
+
+        if (isBrowserOffline()) {
+            waitingForOnline = true;
+            showStatus("网络已断开，等待恢复", "muted");
+            return;
+        }
+
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            showStatus("连接已断开，请手动重连", "error");
+            setReconnectButtonVisible(true);
             return;
         }
 
@@ -109,6 +186,29 @@ function connectReceiver(session) {
         if (socket !== currentSocket) return;
         showStatus("连接异常", "error");
     });
+}
+
+function showCopyMessage(text, type) {
+    copyMessage.className = `alert alert-${type} message-slot mt-3`;
+    copyMessage.textContent = text;
+    window.clearTimeout(copyMessageTimeout);
+    copyMessageTimeout = window.setTimeout(() => copyMessage.classList.add("d-none"), 3000);
+}
+
+function selectReceivedText() {
+    receivedTextElement.focus?.();
+    if (typeof window.getSelection !== "function" || typeof document.createRange !== "function") {
+        return false;
+    }
+    const selection = window.getSelection();
+    if (!selection) {
+        return false;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(receivedTextElement);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
 }
 
 function showReceivedText(text, expiresIn) {
@@ -163,6 +263,7 @@ function renderQrCode(qrSvg) {
 function closeSocket() {
     activeSession = undefined;
     window.clearTimeout(reconnectTimeout);
+    reconnectTimeout = undefined;
 
     const oldSocket = socket;
     socket = undefined;

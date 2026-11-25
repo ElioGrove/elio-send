@@ -17,6 +17,10 @@ async function createSession() {
   const response = await exports.default.fetch(`${origin}/api/session`, { method: "POST" });
   expect(response.status).toBe(200);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
+  expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+  expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+  expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains");
   return response.json();
 }
 
@@ -103,10 +107,34 @@ it("delivers Unicode and maximum-length text only to receivers of the same sessi
     expect(await send(sender, text)).toEqual({ type: "sent", success: true });
     expect(await received).toEqual({ type: "text", text, expiresIn: 60 });
   }
-  // No transmitted text or receiver credential is written to DO storage.
+  // Only session creation timestamp is stored; no transmitted text or receiver credential is written to DO storage.
   await runInDurableObject(env.SESSIONS.getByName(session.sessionId), async (_instance, state) => {
-    expect((await state.storage.list()).size).toBe(0);
+    const entries = await state.storage.list();
+    expect([...entries.keys()]).toEqual(["createdAt"]);
+    expect(typeof entries.get("createdAt")).toBe("number");
   });
+});
+
+it("rejects uninitialized and expired sessions with 404/410 and closes active expired sockets with 4410", async () => {
+  const uninitialized = { sessionId: "u".repeat(43), receiverToken: "t".repeat(43) };
+  const notFound = await upgrade(uninitialized, "sender");
+  expect(notFound.status).toBe(404);
+  expect(notFound.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  expect(notFound.headers.get("X-Frame-Options")).toBe("DENY");
+
+  const session = await createSession();
+  const sender = await connect(session, "sender");
+  const stub = env.SESSIONS.getByName(session.sessionId);
+  await runInDurableObject(stub, async (_instance, state) => {
+    await state.storage.put("createdAt", Date.now() - (60 * 60 * 1000 + 1000));
+  });
+
+  const closed = nextEvent(sender, "close");
+  const expired = await upgrade(session, "sender");
+  expect(expired.status).toBe(410);
+  expect(expired.headers.get("Referrer-Policy")).toBe("no-referrer");
+  expect(expired.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains");
+  expect((await closed).code).toBe(4410);
 });
 
 it("rejects malformed JSON, null, binary, blank, and oversized text without breaking the session", async () => {
@@ -203,10 +231,12 @@ it("serves CSP with explicit websocket origins and keeps localhost HTTP working"
     const response = await worker.fetch(new Request(url), assetEnv);
     const csp = response.headers.get("Content-Security-Policy");
     expect(csp).not.toContain("unsafe-inline");
+    expect(csp).not.toContain("umami");
     expect(csp).toContain(url.startsWith("https:") ? "wss://send.example" : "ws://localhost:8787");
     expect(csp.includes("upgrade-insecure-requests")).toBe(url.startsWith("https:"));
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains");
   }
 });
